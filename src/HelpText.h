@@ -13,8 +13,10 @@
 
 #if JUCE_MAC
 #define CTRL "Cmd"
+#define ALT "Opt"
 #else
 #define CTRL "Ctrl"
+#define ALT "Alt"
 #endif
 
 
@@ -23,10 +25,14 @@ HelpPair gHelpText[] = {
    {"optionsPanel",  "Options on this pane are saved with the project/patch" },
    {"stepPanelStepMode",    "Left click selects a cell. Click multiple times, or click and drag to change value. Drag near right border of selected cell to change length. Shift-drag to select multiple cells. Arrow keys move selected cells. Delete key clears selected cells" },
    {"stepPanelVeloMode", "Click cell multiple times or click and drag to change velocity on valid cells"},
-   {"stepPanelChainMode", "Click and drag on valid cells to create chains to other cells. "
-                           CTRL "-drag to create a negative chain. "
-                           CTRL "-shift-drag to create a custom chain. "
-                           "Right-click a target cell to clear chains leading to that cell" },
+   {"stepPanelChainMode", "Drag to chain; " CTRL " blocks the target, " ALT " uses source not playing (combine both). "
+                          "Right-click clears incoming chains; double-click for advanced editing." },
+   {"chainDialog", "Inspect and edit chains for the selected cell. Click another active cell to follow it." },
+   {"chainSources", "Sources are cells that trigger or block the selected cell. Click a chain to highlight it." },
+   {"chainTargets", "Targets are cells triggered or blocked by the selected cell. Click a chain to highlight it." },
+   {"chainSourceToggle", "Choose whether the chain fires when the source plays or does not play." },
+   {"chainTargetToggle", "Choose whether the chain triggers or blocks the target when it fires." },
+   {"chainDelete", "Delete this chain." },
    {"stepPanelOffsMode", "Shift cells forward and backward in time. Negative values will cause the cell to play sooner. Positive values will cause the cell to play later. A value of -50 will cause the cell to play halfway between the previous step and the step it is on"},
    {"stepPanelTrigMode", "Allows retriggering of the cell a number of times at this position. This can be used to create a drum fill for example. The value specified represents how many times the cell is triggered.  Default is 1. Cells that retrigger cannot have a length greater than 1"},
    { "sectionSelect" , "Select which section of the current pattern to make visible for editing"},
@@ -97,5 +103,6 @@ HelpPair gHelpText[] = {
    { "setUIScale",    "Sets the overall size of the UI, allowing you to enlarge the controls for better visibility on large screens."},
    { "patLayerLink",    "Determines whether patterns are linked together for a layer. If turned on, changing patterns on one layer will change to that same pattern on all layers"},
     { "showMidiNum", "Determines whether MIDI note numbers are used instead of names to display note values."},
+   { "monoProbDisplayMode", "Determines how probabilities in mono mode are displayed. Simple shows Low/Med/High labels and uses stepped dragging. Rel. % shows each cell's percentage of the total weight in the column. Weight shows the raw weight value."},
     {0,0} // end sentinel
 };

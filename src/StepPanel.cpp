@@ -142,37 +142,84 @@ StepCpt::getEffectiveColorAndText(juce::Colour &c, juce::String &txt, bool &dash
       case EditorState::editingChain:
          // val is probability. if 0, it's off
 
-         // colors will be same for mono/poly right now
          if (val == SEQ_PROB_OFF)
             c = e->getColorFor(EditorState::stepOff);
-         else if(val==SEQ_PROB_NEVER)
-            c = e->getColorFor(EditorState::stepNeverProb);
-         else if (val <= SEQ_PROB_LOW_VAL)
-            c = e->getColorFor(EditorState::stepLowProb);
-         else if (val <= SEQ_PROB_MED_VAL)
-            c = e->getColorFor(EditorState::stepMediumProb);
-         else if (val <= SEQ_PROB_ON)
-            c = e->getColorFor(EditorState::stepHighProb);
 
-         if (d->isMonoMode()) {
-            if (val == SEQ_PROB_OFF)
-               txt = "";
-            else if (val == SEQ_PROB_NEVER)
-               txt = SEQ_PROB_NEVER_TEXT;
-            else if (val <= SEQ_PROB_LOW_VAL)
-               txt = SEQ_PROB_LOW_TEXT;
-            else if (val <= SEQ_PROB_MED_VAL)
-               txt = SEQ_PROB_MED_TEXT;
-            else if (val <= SEQ_PROB_HIGH_VAL)
-               txt = SEQ_PROB_HIGH_TEXT;
-         }
-         else // poly mode
-            if (val != SEQ_PROB_OFF) {
+         else {
+            if (d->isMonoMode()) {
+               int calcVal;
+               if (e->getMonoProbDisplayMode() == EditorState::monoProbDisplayModeRelative) {
+                  // If we are in relative mode, calculate relative percentage of this note's weight vs total weight in column
+                  int totalWeight = 0;
+                  int numRows = d->getMaxRows();
+                  int startRow = SEQ_MAX_ROWS - numRows;
+
+                  for (int r = startRow; r < SEQ_MAX_ROWS; r++) {
+                     int8_t rowProb;
+                     // Use mTempValue for the cell being dragged
+                     if (r == mRow && mTempValue != MOUSE_STARTVAL_INVALID)
+                        rowProb = mTempValue;
+                     else
+                        rowProb = d->getProb(r, mCol);
+
+                     if (rowProb > 0) // Only count active notes (not OFF or NEVER)
+                        totalWeight += rowProb;
+                  }
+
+                  if (totalWeight > 0)
+                     calcVal = (val * 100) / totalWeight;
+                  else
+                     calcVal = 0;
+               } else {
+                  // In non-relative mode, use the absolute value
+                  calcVal = val;
+               }
+
+               if(calcVal==SEQ_PROB_NEVER)
+                  c = e->getColorFor(EditorState::stepNeverProb);
+               else if (calcVal <= SEQ_PROB_LOW_VAL)
+                  c = e->getColorFor(EditorState::stepLowProb);
+               else if (calcVal <= SEQ_PROB_MED_VAL)
+                  c = e->getColorFor(EditorState::stepMediumProb);
+               else if (calcVal <= SEQ_PROB_ON)
+                  c = e->getColorFor(EditorState::stepHighProb);
+
+               switch (e->getMonoProbDisplayMode()) {
+               case EditorState::monoProbDisplayModeSimplified:
+                  if (calcVal == SEQ_PROB_NEVER)
+                     txt = SEQ_PROB_NEVER_TEXT;
+                  else if (calcVal <= SEQ_PROB_LOW_VAL)
+                     txt = SEQ_PROB_LOW_TEXT;
+                  else if (calcVal <= SEQ_PROB_MED_VAL)
+                     txt = SEQ_PROB_MED_TEXT;
+                  else
+                     txt = SEQ_PROB_HIGH_TEXT;
+                  break;
+               case EditorState::monoProbDisplayModeRelative:
+                  txt = String::formatted("%d%%", calcVal);
+                  break;
+               case EditorState::monoProbDisplayModeWeight:
+                  txt = String::formatted("%0.2f", calcVal / 100.0);
+                  break;
+               }
+            }
+            // In the poly mode, both the color and the label represent the absolute probability.
+            else {
+               if(val==SEQ_PROB_NEVER)
+                  c = e->getColorFor(EditorState::stepNeverProb);
+               else if (val <= SEQ_PROB_LOW_VAL)
+                  c = e->getColorFor(EditorState::stepLowProb);
+               else if (val <= SEQ_PROB_MED_VAL)
+                  c = e->getColorFor(EditorState::stepMediumProb);
+               else if (val <= SEQ_PROB_ON)
+                  c = e->getColorFor(EditorState::stepHighProb);
+
                if (val == SEQ_PROB_ON)
                   txt = SEQ_PROB_ON_TEXT;
                else
-                  txt = String().formatted("%d%%",val);
+                  txt = String::formatted("%d%%", val);
             }
+         }
 
          if(mode==EditorState::editingChain) {
             if(val != SEQ_PROB_OFF) {
@@ -285,19 +332,20 @@ StepPanel::StepPanel(SeqGlob *glob, int id, Component *mainCpt, CptNotify *notif
    mMouseStartVal(MOUSE_STARTVAL_INVALID),
    mChainStartItem(0),
    mChainEndItem(0),
-   mChainCustom(false),
    mChainNegTgt(false),
+   mChainNegSrc(false),
+   mHiliteSrc(-1),
+   mHiliteTgt(-1),
+   mHiliteCell(-1),
+   mChainDialogCell(-1),
+   mChainDialogLayer(-1),
+   mChainDialogPattern(-1),
    mRowNotify(0),
    mDoingMultiSelect(false),
    mChordHandler(glob),
    mCurPosition(-1)
    
 {
-   // this is to notify the main window when a custom chain is being added
-   ActionListener *al = dynamic_cast<ActionListener *>(mainCpt);
-   jassert(al);
-   mBroadcaster.addActionListener(al);
-
    setWantsKeyboardFocus(true);
    for (int i = 0; i < SEQ_MAX_ROWS*SEQ_MAX_STEPS; i++) {
       addAndMakeVisible(mGrid[i]);
@@ -444,6 +492,7 @@ void StepPanel::paintOverChildren(Graphics & g)
    // draw chains if in chain mode
    if (mGlob->mEditorState->getEditMode() == EditorState::editingChain) {
       paintChains(g);      
+      paintHighlightedChain(g);
    }
       
    // draw the selected cell(s)
@@ -545,16 +594,18 @@ StepPanel::mouseDrag(const MouseEvent &event)
                  newval = mMouseStartVal + mouseDist;
                  newval = newval > SEQ_MAX_RETRIGGER ? SEQ_MAX_RETRIGGER : newval < 1 ? 1 : newval;
                }
-               else if (data->isMonoMode()) {
+               else if (data->isMonoMode() &&
+                  e->getMonoProbDisplayMode() == EditorState::monoProbDisplayModeSimplified) {
                   // since there are limited possible values in monoMode, make the mouse less sensitive
                   mouseDist /= 5;
-                  // there are 4 possible values so the max we'll move from current val is 3 (or -3)      
+                  // there are 4 possible values so the max we'll move from current val is 3 (or -3)
                   newval = getNewMonoVal(mMouseStartVal, mouseDist);
                }
-               else { // poly mode   
-                      // clamp to 100      
+               else {
+                  // poly mode, or mono mode showing relative probabilities or weights:
+                  // clamp to 0-100 (or -1 for OFF)
                   newval = mMouseStartVal + mouseDist;
-                  newval = newval > SEQ_PROB_ON ? SEQ_PROB_ON : 
+                  newval = newval > SEQ_PROB_ON ? SEQ_PROB_ON :
                      newval < SEQ_PROB_OFF ? SEQ_PROB_OFF : newval;
                }
 
@@ -631,8 +682,8 @@ void StepPanel::mouseDown(const MouseEvent & event)
             // in chain mode, we drag to create arrows between cells
             if (currentProb != SEQ_PROB_OFF) {
                mChainStartItem = c;
-               mChainCustom = event.mods.isCommandDown() && event.mods.isShiftDown();
-               mChainNegTgt = event.mods.isCommandDown() && !event.mods.isShiftDown();
+               mChainNegSrc = event.mods.isAltDown();
+               mChainNegTgt = event.mods.isCommandDown();
 
             }
             break;
@@ -688,6 +739,48 @@ void StepPanel::mouseDown(const MouseEvent & event)
 end:;
    repaint();
 
+}
+
+void StepPanel::mouseDoubleClick(const MouseEvent &event)
+{
+   EditorState *e = mGlob->mEditorState;
+   if (e->getEditMode() != EditorState::editingChain ||
+      event.eventComponent->getName().compare("singleStep") != 0 ||
+      event.mods.isRightButtonDown())
+      return;
+   auto *c = static_cast<StepCpt *>(event.eventComponent);
+   SequenceLayer *data = mGlob->mSeqBuf->getUISeqData()->getLayer(e->getCurrentLayer());
+   if (c->mCol >= data->getNumSteps() || data->getProb(c->mRow, c->mCol) == SEQ_PROB_OFF)
+      return;
+   mNotify->cptValueChange(mId, c->mRow * SEQ_MAX_STEPS + c->mCol);
+}
+
+void StepPanel::setChainHighlight(int srcRow, int srcCol, int tgtRow, int tgtCol, int otherRow, int otherCol)
+{
+   mHiliteSrc = srcRow * SEQ_MAX_STEPS + srcCol;
+   mHiliteTgt = tgtRow * SEQ_MAX_STEPS + tgtCol;
+   mHiliteCell = otherRow * SEQ_MAX_STEPS + otherCol;
+   repaint();
+}
+
+void StepPanel::setChainDialogCell(int row, int col)
+{
+   mChainDialogCell = row * SEQ_MAX_STEPS + col;
+   mChainDialogLayer = mGlob->mEditorState->getCurrentLayer();
+   mChainDialogPattern = mGlob->mSeqBuf->getUISeqData()->getLayer(mChainDialogLayer)->getCurrentPattern();
+}
+
+void StepPanel::clearChainDialogCell()
+{
+   mChainDialogCell = mChainDialogLayer = mChainDialogPattern = -1;
+}
+
+void StepPanel::clearChainHighlight()
+{
+   if (mHiliteSrc != -1) {
+      mHiliteSrc = mHiliteTgt = mHiliteCell = -1;
+      repaint();
+   }
 }
 
 void StepPanel::mouseUp(const MouseEvent & event)
@@ -749,6 +842,9 @@ void StepPanel::mouseUp(const MouseEvent & event)
    }
    else if(cn == "singleStep") {
       StepCpt *c = static_cast<StepCpt *>(event.eventComponent);
+      bool chainClick = mChainStartItem == c && mChainStartItem != nullptr &&
+         (mChainEndItem == nullptr || mChainEndItem == c) &&
+         event.mods.isLeftButtonDown() && !event.mouseWasDraggedSinceMouseDown();
 
       if (mDoingMultiSelect) {
          // user has just executed a multi-select (shift drag)
@@ -784,16 +880,14 @@ void StepPanel::mouseUp(const MouseEvent & event)
                   data->setProb(mChainEndItem->mRow, mChainEndItem->mCol, SEQ_PROB_NEVER);
                }
                if (data->addChainSource(mChainEndItem->mRow, mChainEndItem->mCol,
-                  mChainStartItem->mRow, mChainStartItem->mCol,mChainNegTgt, false)) {
+                  mChainStartItem->mRow, mChainStartItem->mCol,mChainNegTgt, mChainNegSrc)) {
                   buf->swap();
                   c = mChainEndItem; // so that this items ends up being selected (below where we select item)                                    
-
-                  // if they ctrl drag, we make it negative and also popup the dialog
-                  // so they can further customize it
-                  if (mChainCustom) {
-                     String f=String::formatted("chainAdd|%d|%d|%d|%d", mChainStartItem->mRow,
-                        mChainStartItem->mCol, mChainEndItem->mRow, mChainEndItem->mCol);
-                     mBroadcaster.sendActionMessage(f);
+                  int target = c->mRow * SEQ_MAX_STEPS + c->mCol;
+                  if (target == mChainDialogCell && e->getCurrentLayer() == mChainDialogLayer &&
+                      data->getCurrentPattern() == mChainDialogPattern) {
+                     mSelGridItem = target;
+                     e->setSelectedCells(c->mCol, c->mCol, c->mRow, c->mRow);
                   }
                } else {
                   // failed to add due to reaching limit
@@ -971,6 +1065,9 @@ void StepPanel::mouseUp(const MouseEvent & event)
          
       c->mTempValue = MOUSE_STARTVAL_INVALID;
       mMouseStartVal = MOUSE_STARTVAL_INVALID;
+
+      if (chainClick)
+         mNotify->cptValueChange(mId, -(c->mRow * SEQ_MAX_STEPS + c->mCol + 1));
 
       repaint();
 
@@ -1181,7 +1278,7 @@ StepPanel::paintChains(Graphics &g)
    
    // do the chain that is being added currently
    if (mChainStartItem && mChainEndItem) {
-      juce::Colour selColor, srcBlobColor, posColor;
+      juce::Colour selColor, srcBlobColor, posColor, srcColor;
       Point<int> start = mChainStartItem->getBounds().getCentre();
       Point<int> end = mChainEndItem->getBounds().getCentre();
       bool up = false;
@@ -1191,10 +1288,29 @@ StepPanel::paintChains(Graphics &g)
          posColor = e->getColorFor(EditorState::chainNegative);
       else
          posColor = e->getColorFor(EditorState::chainPositive);
+      if(mChainNegSrc)
+         srcColor = e->getColorFor(EditorState::chainNegative);
+      else
+         srcColor = e->getColorFor(EditorState::chainPositive);
       selColor = posColor.withAlpha(0.5f);
-      srcBlobColor = posColor.withAlpha(0.5f);
+      srcBlobColor = srcColor.withAlpha(0.5f);
       drawCurve(start.toFloat(), end.toFloat(), g, up, true, selColor, srcBlobColor);
    }
+}
+
+void StepPanel::paintHighlightedChain(Graphics &g)
+{
+   if (mHiliteSrc < 0)
+      return;
+   StepCpt *src = &mGrid[mHiliteSrc];
+   StepCpt *tgt = &mGrid[mHiliteTgt];
+   if (!src->isStepInRange() || !tgt->isStepInRange())
+      return;
+   Colour c = mGlob->mEditorState->getColorFor(EditorState::cellSelection);
+   bool up = src->mRow > SEQ_MAX_ROWS - 4 || tgt->mRow > SEQ_MAX_ROWS - 4;
+   drawCurve(src->getBounds().getCentre().toFloat(), tgt->getBounds().getCentre().toFloat(), g, up, true, c, c);
+   g.setColour(c);
+   g.drawRoundedRectangle(mGrid[mHiliteCell].getBoundsInParent().toFloat().reduced(1.0f), 2.0f, 3.0f);
 }
 
 void StepPanel::paintSingleChain(Graphics & g, int x, int y, bool current)

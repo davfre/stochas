@@ -248,7 +248,6 @@ in mono mode are 0..high val where 0 is off, and the following applies
 #define SEQCTL_LOAD_PATCH           23 //* load a new patch xml
 #define SEQCTL_SAVE_PATCH           24 //* save a patch
 #define SEQCTL_GRV_SAVE_BUTTON      25 //* save groove to midi file
-#define SEQCTL_ADDCHAINDIALOG       28 //* add chain dialog
 #define SEQCTL_UNDO_BUTTON          29 //* undo button
 #define SEQCTL_RECORD_BUTTON        30 //* record button
 #define SEQCTL_PLAYBACK_MODE        31 //* playback mode
@@ -260,6 +259,8 @@ in mono mode are 0..high val where 0 is off, and the following applies
 #define SEQCTL_PLAY_BUTTON          32 //* play button
 #define SEQCTL_INFODIALOG           33 // * info dialog itself (will notify when its done)
 #define SEQCTL_STANDALONE_BPM_BUTTON 34 // for standalone mode only
+#define SEQCTL_TRANSPORT_BUTTON     36 // standalone transport settings (cog) button
+#define SEQCTL_TRANSPORTDIALOG      37 // standalone transport settings dialog itself
 #define SEQCTL_SIZE_PANIC           35 // * press to restore UI size to default
 
 ///////////////////////
@@ -314,6 +315,7 @@ in mono mode are 0..high val where 0 is off, and the following applies
 #define SEQCTL_SET_UISCALE          11
 #define SEQCTL_SET_PATLAYERLINK     12
 #define SEQCTL_SET_MIDINOTENUM      13
+#define SEQCTL_SET_MONOPROBDISPLAYMODE 14
 
 
 ///////////////////////////

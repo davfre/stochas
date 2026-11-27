@@ -21,18 +21,19 @@
 #include "EditorState.h"
 #include "Constants.h"
 #include "EditDialog.h"
+#include "TransportDialog.h"
 #include "InfoDialog.h"
 #include "SettingsTab.h"
 #include "MidiDialog.h"
-#include "FileDialog.h"
 #include "ChainDialog.h"
+#include "FileDialog.h"
 
 /*
 Main UI Class
 */
 class SeqAudioProcessorEditor  : public AudioProcessorEditor, 
    public CptNotify, public MultiTimer, public ScrollBar::Listener,
-   public Label::Listener, public ActionListener
+   public Label::Listener
 {
    LookAndFeel_V3 mLookAndFeel; // maintain the v3 look and feel
    SeqAudioProcessor& mProcessor;
@@ -55,6 +56,7 @@ class SeqAudioProcessorEditor  : public AudioProcessorEditor,
    ButtonCpt mUndoBtn;
    ButtonCpt mRecordBtn;
    ButtonCpt mPlayBtn;
+   ButtonCpt mTransportBtn; // standalone only: cog that opens transport settings
    ToggleCpt mPatternSelect;
    Label mPatternLabel;
    
@@ -110,8 +112,8 @@ class SeqAudioProcessorEditor  : public AudioProcessorEditor,
    Label mSectionLabel;
    SeqEditDialog mEditDialog;
    SeqInfoDialog mInfoDialog;
+   SeqTransportDialog mTransportDialog;
    SeqFileDialog mFileChooser;
-   SeqChainDialog mChainDialog;
 
    int mMidiLightCountDown;
    int mTimeDivider;
@@ -120,6 +122,7 @@ class SeqAudioProcessorEditor  : public AudioProcessorEditor,
    SeqProcessorNotifier::PlayRecordState mPlayStateCache;
 
    SeqMidiDialog mMidiDlg;
+   SeqChainDialog mChainDlg;
 
    // set active chord for painting, -1 is off
    void chordSelect(int id);
@@ -185,9 +188,6 @@ public:
 private:
    // don't know what this is right now so I leave it here
    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeqAudioProcessorEditor)
-
-      // Inherited via ActionListener
-      virtual void actionListenerCallback(const String & message) override;
 };
 
 

@@ -42,6 +42,7 @@ SeqAudioProcessorEditor::SeqAudioProcessorEditor(SeqAudioProcessor &p)
       mUndoBtn(&mGlob, SEQCTL_UNDO_BUTTON, this, "undoButton"),        // button that brings up edit dialog
       mRecordBtn(&mGlob, SEQCTL_RECORD_BUTTON, this, "recordButton"),
       mPlayBtn(&mGlob, SEQCTL_PLAY_BUTTON, this, "playButton"),
+      mTransportBtn(&mGlob, SEQCTL_TRANSPORT_BUTTON, this, "transportButton"),
       mPatternSelect(&mGlob, SEQCTL_PATSEL_TOGGLE, this, "patternSelect"),      // select current pattern
       mSectionSelect(&mGlob, SEQCTL_SECTION_TOGGLE, this, "sectionSelect"),     // select section when number of steps exceeds 16
       mMainTabs(SEQCTL_TABS, this, TabbedButtonBar::Orientation::TabsAtBottom), // main tabs at bottom
@@ -69,13 +70,14 @@ SeqAudioProcessorEditor::SeqAudioProcessorEditor(SeqAudioProcessor &p)
       mLayerToggle(&mGlob, SEQCTL_LAYER_TOGGLE, this), // for selecting which layer we are on
       mEditDialog(&mGlob, this),                       // our edit dialog itself
       mInfoDialog(&mGlob, this),
+      mTransportDialog(&mGlob, this),
       mFileChooser(&mGlob, this),
-      mChainDialog(&mGlob, this),
       mMidiLightCountDown(0),                         // for keeping the midi light lit for a specified time
       mTimeDivider(0),                                // for updating help text at bottom
       mRecStateCache(SeqProcessorNotifier::standby),  // force it to be different than default
       mPlayStateCache(SeqProcessorNotifier::standby), // force it to be different than default
-      mMidiDlg(&mGlob, this)
+      mMidiDlg(&mGlob, this),
+      mChainDlg(&mGlob, &mStepPanel)
 {
 
    int tmp = 0;
@@ -92,9 +94,9 @@ SeqAudioProcessorEditor::SeqAudioProcessorEditor(SeqAudioProcessor &p)
    mBtnSaveGroove.setName("grvSaveMidi");
 
    addChildComponent(mMidiDlg);
+   addChildComponent(mChainDlg);
 
    addChildComponent(mFileChooser);
-   addChildComponent(mChainDialog);
 
    //=============================StepPanel and PlayPanel which are within their own holders
    addAndMakeVisible(mStepHolder);
@@ -192,6 +194,11 @@ SeqAudioProcessorEditor::SeqAudioProcessorEditor(SeqAudioProcessor &p)
 
    mPlayBtn.setText("Play");
    addAndMakeVisible(mPlayBtn);
+   if (mProcessor.wrapperType == AudioProcessor::wrapperType_Standalone)
+   {
+      mTransportBtn.setImage(ImageCache::getFromMemory(SeqImageX::cog_png, SeqImageX::cog_pngSize));
+      addAndMakeVisible(mTransportBtn);
+   }
 
    //=============================Midi indicator light
    mMidiIndicator.mGlob = &mGlob;
@@ -307,6 +314,7 @@ SeqAudioProcessorEditor::SeqAudioProcessorEditor(SeqAudioProcessor &p)
 
    // ============================== Info dialog
    addChildComponent(mInfoDialog);
+   addChildComponent(mTransportDialog);
 
    // ================================= Scrollbar that moves rows up and down
    mStepScrollbar.setRangeLimits(Range<double>(0, 1), juce::dontSendNotification);
@@ -443,7 +451,15 @@ void SeqAudioProcessorEditor::resized()
    mUndoBtn.setBounds(tmp);
    tmp = upper.removeFromRight(64);
    mRecordBtn.setBounds(tmp);
-   tmp = upper.removeFromRight(64);
+   if (mProcessor.wrapperType == AudioProcessor::wrapperType_Standalone)
+   {
+      // cog sits to the right of the play button, which is narrower to make room
+      tmp = upper.removeFromRight(18);
+      mTransportBtn.setBounds(tmp);
+      tmp = upper.removeFromRight(46);
+   }
+   else
+      tmp = upper.removeFromRight(64);
    mPlayBtn.setBounds(tmp);
    if (mProcessor.wrapperType == AudioProcessor::wrapperType_Standalone)
    {
@@ -474,6 +490,7 @@ void SeqAudioProcessorEditor::resized()
 
    // bottom tabs
    mMainTabs.setBounds(lower);
+   mChainDlg.setBounds(lower);
 
    // help banner
    mHelpBanner.setBounds(banner);
@@ -867,6 +884,11 @@ void SeqAudioProcessorEditor::cptValueChange(int cptId, int id)
       mInfoDialog.openDialog();
       break;
    }
+   case SEQCTL_TRANSPORT_BUTTON:
+      mTransportDialog.doSetup();
+      mTransportDialog.openDialog();
+      break;
+
    case SEQCTL_EDIT_BUTTON:
       // edit was clicked
       mEditDialog.doSetup();
@@ -989,16 +1011,20 @@ void SeqAudioProcessorEditor::cptValueChange(int cptId, int id)
       showFileChooser(SEQ_FILE_LOAD_PATCH);
       break;
    case SEQCTL_STEP_PANEL:
-      // stepPanel could send some notification if it wanted
+      // A negative value represents a single click; non-negative means double-click.
+      if (id < 0)
+      {
+         int cell = -id - 1;
+         mChainDlg.followCell(cell / SEQ_MAX_STEPS, cell % SEQ_MAX_STEPS);
+      }
+      else
+         mChainDlg.openFor(id / SEQ_MAX_STEPS, id % SEQ_MAX_STEPS);
       break;
    case SEQCTL_CHORD_TOGGLE:
       chordSelect(id);
       break;
    case SEQCTL_FILEDIALOG: // file dialog had "OK" hit on it, access members on it to determine what to do
       respondFileChooser();
-      repaint();
-      break;
-   case SEQCTL_ADDCHAINDIALOG:
       repaint();
       break;
    case SEQCTL_PLAYBACK_MODE:
@@ -1507,6 +1533,8 @@ void SeqAudioProcessorEditor::mainTimer()
    // the grid to reflect which steps have played and also show new midi notes
    // that may have been recorded (will update when step position changes)
    mStepPanel.check();
+   // same for chain dialog
+   mChainDlg.check();
 
    // check to see whether record state has changed
    SeqProcessorNotifier::PlayRecordState rs = mGlob.mAudNotify->getRecordingState();
@@ -1769,25 +1797,5 @@ void SeqAudioProcessorEditor::setMuteUnmuteLayers()
          mLayerToggle.setLabel(i, "M");
       else if (!m && h)
          mLayerToggle.clearLabel(i);
-   }
-}
-
-void SeqAudioProcessorEditor::actionListenerCallback(const String &message)
-{
-   // there has got to be an easier way to do this...
-   StringArray tokens;
-   String type;
-   tokens.addTokens(message, "|", "");
-   if (tokens.size())
-   {
-      type = tokens[0];
-   }
-
-   // this listens for async events
-   if (type.compare("chainAdd") == 0)
-   {
-      mChainDialog.doSetup(tokens[1].getIntValue(), tokens[2].getIntValue(),
-                           tokens[3].getIntValue(), tokens[4].getIntValue());
-      mChainDialog.openDialog();
    }
 }
